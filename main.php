@@ -117,8 +117,18 @@ function lolmi_setup_nav_menu_item($item) {
 	global $pagenow;
 
 	if($pagenow != 'nav-menus.php' && !defined('DOING_AJAX') && isset($item->url) && strstr($item->url, '#lolmi') != '') {
-		$login_page_url       = get_option('lolmi_login_page_url', wp_login_url());
-    $logout_redirect_url  = get_option('lolmi_logout_redirect_url', home_url());
+		$login_page_url = get_option('lolmi_login_page_url', wp_login_url());
+    // Should we include a redirect parameter?
+    if ( get_option('lolmi_login_use_redirect_param') ) {
+      $current_url = is_ssl() ? 'https://' : 'http://';
+      $current_url .= $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'];
+      // Only add redirect if not currently on the main redirect page.
+      if ( trailingslashit( $current_url ) !== trailingslashit( get_option( 'lolmi_login_redirect_url', home_url() ) ) ) {
+        $login_page_url = add_query_arg( 'redirect_to', $current_url, $login_page_url );
+      }
+    }
+
+    $logout_redirect_url = get_option('lolmi_logout_redirect_url', home_url());
 
 		switch($item->url) {
 			case '#lolmilogin#':
@@ -138,8 +148,9 @@ function lolmi_setup_nav_menu_item($item) {
 add_filter('wp_setup_nav_menu_item', 'lolmi_setup_nav_menu_item');
 
 function lolmi_login_redirect_override($redirect_to, $request, $user) {
-  //If the login failed, or if the user is an Admin - let's not override the login redirect
-  if(!is_a($user, 'WP_User') || user_can($user, 'manage_options')) {
+  //If the login failed, or if the user is an Admin, or if we're respecting redirects
+  // - let's not override the login redirect
+  if(!is_a($user, 'WP_User') || user_can($user, 'manage_options') || ( get_option('lolmi_login_use_redirect_param') && ! empty( $redirect_to ) ) ) {
     return $redirect_to;
   }
 
@@ -149,9 +160,10 @@ function lolmi_login_redirect_override($redirect_to, $request, $user) {
 add_filter('login_redirect', 'lolmi_login_redirect_override', 11, 3);
 
 function lolmi_settings_page() {
-  $login_page_url       = get_option('lolmi_login_page_url', wp_login_url());
-  $login_redirect_url   = get_option('lolmi_login_redirect_url', home_url());
-  $logout_redirect_url  = get_option('lolmi_logout_redirect_url', home_url());
+  $login_page_url           = get_option('lolmi_login_page_url', wp_login_url());
+  $login_redirect_url       = get_option('lolmi_login_redirect_url', home_url());
+  $login_use_redirect_param = get_option('lolmi_login_use_redirect_param');
+  $logout_redirect_url      = get_option('lolmi_logout_redirect_url', home_url());
   ?>
     <div class="wrap">
       <div class="icon32"></div>
@@ -173,6 +185,9 @@ function lolmi_settings_page() {
         <label for="lolmi_login_redirect_url"><?php _e('Login Redirect URL', 'lolmi'); ?></label><br/>
         <small><?php _e('URL to redirect a user to after logging in. Note: Some other plugins may override this URL.'); ?></small><br/>
         <input type="text" id="lolmi_login_redirect_url" name="lolmi_login_redirect_url" value="<?php echo $login_redirect_url; ?>" style="min-width:250px;width:60%;" /><br/><br/>
+
+        <input type="checkbox" id="lolmi_login_use_redirect_param" name="lolmi_login_use_redirect_param" value=1 <?php checked( $login_use_redirect_param ); ?> > <label for="lolmi_login_use_redirect_param"><?php _e('Respect the <code>redirect</code> parameter if passed along with the login request. Add the <code>redirect</code> parameter to login links.', 'lolmi'); ?></label><br/>
+        <small><?php _e('For example, if the user clicks the "Login" mmenu item from your contact page, she will be returned to the contact page after logging in. The Login Redirect URL setting above will be used only if no redirect parameter is included.'); ?></small><br/><br/><br/>
 
         <label for="lolmi_logout_redirect_url"><?php _e('Logout Redirect URL', 'lolmi'); ?></label><br/>
         <small><?php _e('URL to redirect a user to after logging out. Note: Some other plugins may override this URL.'); ?></small><br/>
@@ -197,10 +212,12 @@ function lolmi_save_settings() {
 
     $login_page_url       = (isset($_POST['lolmi_login_page_url']) && !empty($_POST['lolmi_login_page_url'])) ? $_POST['lolmi_login_page_url'] : wp_login_url();
     $login_redirect_url   = (isset($_POST['lolmi_login_redirect_url']) && !empty($_POST['lolmi_login_redirect_url'])) ? $_POST['lolmi_login_redirect_url'] : home_url();
+    $login_use_redirect_param = ( isset( $_POST['lolmi_login_use_redirect_param'] ) ) ? $_POST['lolmi_login_use_redirect_param'] : false;
     $logout_redirect_url  = (isset($_POST['lolmi_logout_redirect_url']) && !empty($_POST['lolmi_logout_redirect_url'])) ? $_POST['lolmi_logout_redirect_url'] : home_url();
 
     update_option('lolmi_login_page_url', esc_url_raw($login_page_url));
     update_option('lolmi_login_redirect_url', esc_url_raw($login_redirect_url));
+    update_option( 'lolmi_login_use_redirect_param', (bool) $login_use_redirect_param );
     update_option('lolmi_logout_redirect_url', esc_url_raw($logout_redirect_url));
 
     // This is causing security issues with SiteGround - so we'll do it a different way.
